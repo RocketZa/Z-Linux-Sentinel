@@ -200,6 +200,23 @@ def world_writable_issue(mode: int) -> str | None:
     return "World-writable file"
 
 
+def privileged_binary_issue(path: str, mode: int, allowed: list[str]) -> str | None:
+    """Identify unapproved SUID or SGID files."""
+
+    if not (mode & (stat.S_ISUID | stat.S_ISGID)):
+        return None
+
+    if path in allowed:
+        return None
+
+    if mode & stat.S_ISUID and mode & stat.S_ISGID:
+        return "Unapproved SUID/SGID binary"
+
+    if mode & stat.S_ISUID:
+        return "Unapproved SUID binary"
+
+    return "Unapproved SGID binary"
+
 
 def scan_directory(path: str) -> list[dict]:
     """Scan a directory and identify unsafe world-writable entries."""
@@ -234,6 +251,54 @@ def scan_directory(path: str) -> list[dict]:
                 continue
 
             issue = world_writable_issue(entry_stat.st_mode)
+
+            if issue:
+                findings.append({
+                    "path": entry_path,
+                    "issue": issue,
+                    "mode": stat.S_IMODE(entry_stat.st_mode),
+                })
+
+    return findings
+
+
+def scan_privileged_binaries(path: str, allowed: list[str]) -> list[dict]:
+    """Scan a directory for unapproved SUID/SGID files."""
+
+    findings = []
+
+    def handle_walk_error(error):
+        findings.append({
+            "path": error.filename or path,
+            "error": str(error),
+        })
+
+    for root, dirs, files in os.walk(
+        path,
+        topdown=True,
+        followlinks=False,
+        onerror=handle_walk_error,
+    ):
+        for name in dirs + files:
+            entry_path = os.path.join(root, name)
+
+            try:
+                entry_stat = os.lstat(entry_path)
+            except OSError as exc:
+                findings.append({
+                    "path": entry_path,
+                    "error": str(exc),
+                })
+                continue
+
+            if stat.S_ISLNK(entry_stat.st_mode):
+                continue
+
+            issue = privileged_binary_issue(
+                entry_path,
+                entry_stat.st_mode,
+                allowed,
+            )
 
             if issue:
                 findings.append({
@@ -334,3 +399,104 @@ def check_world_writable(cfg=None) -> CheckResult:
         evidence=evidence,
     )
 
+@check(
+    check_id="FILE-03",
+    title="Unapproved SUID/SGID binaries",
+    module="File Security",
+    severity=Severity.HIGH,
+    requires_root=True,
+    remediation=(
+        "Review unapproved SUID/SGID binaries. "
+        "Remove unnecessary SUID/SGID permissions or add verified "
+        "system binaries to the policy allowlist."
+    ),
+)
+def check_privileged_binaries(cfg=None) -> CheckResult:
+    """Audit configured paths for unapproved SUID/SGID binaries."""
+
+    scan_paths = cfg.get("scan_paths") if isinstance(cfg, dict) else None
+    allowed = cfg.get("allowed") if isinstance(cfg, dict) else None
+
+    if (
+        not isinstance(scan_paths, list)
+        or not scan_paths
+        or not all(isinstance(path, str) for path in scan_paths)
+    ):
+        return CheckResult(
+            check_id="FILE-03",
+            title="Unapproved SUID/SGID binaries",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.ERROR,
+            message="Invalid or missing scan_paths configuration",
+            evidence=["Expected a non-empty list of directory paths"],
+        )
+
+    if not isinstance(allowed, list) or not all(
+        isinstance(path, str) for path in allowed
+    ):
+        return CheckResult(
+            check_id="FILE-03",
+            title="Unapproved SUID/SGID binaries",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.ERROR,
+            message="Invalid or missing allowed configuration",
+            evidence=["Expected a list of approved binary paths"],
+        )
+
+    findings = []
+    errors = []
+
+    for path in scan_paths:
+        if not os.path.isdir(path):
+            errors.append(f"{path}: Not a valid directory")
+            continue
+
+        results = scan_privileged_binaries(path, allowed)
+
+        for result in results:
+            if "error" in result:
+                errors.append(f"{result['path']}: {result['error']}")
+            else:
+                findings.append(result)
+
+    evidence = [
+        f"{finding['path']}: {finding['issue']} "
+        f"(mode={oct(finding['mode'])})"
+        for finding in findings
+    ]
+
+    evidence.extend(f"Scan error: {error}" for error in errors)
+
+    if findings:
+        return CheckResult(
+            check_id="FILE-03",
+            title="Unapproved SUID/SGID binaries",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.FAIL,
+            message=f"Found {len(findings)} unapproved SUID/SGID binaries",
+            evidence=evidence,
+        )
+
+    if errors:
+        return CheckResult(
+            check_id="FILE-03",
+            title="Unapproved SUID/SGID binaries",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.ERROR,
+            message=f"Scan incomplete: encountered {len(errors)} error(s)",
+            evidence=evidence,
+        )
+
+    return CheckResult(
+        check_id="FILE-03",
+        title="Unapproved SUID/SGID binaries",
+        module="File Security",
+        severity=Severity.HIGH,
+        status=Status.PASS,
+        message="No unapproved SUID/SGID binaries found",
+        evidence=evidence,
+    )

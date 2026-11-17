@@ -1,6 +1,7 @@
 from sentinel.checks.files import scan_directory
 import stat
-from sentinel.checks.files import check_world_writable
+from sentinel.checks.files import scan_privileged_binaries, check_world_writable, privileged_binary_issue, check_privileged_binaries
+
 
 from sentinel.checks.files import (
     check_critical_file_permissions,
@@ -332,3 +333,145 @@ def test_world_writable_check_empty_scan_paths_returns_error():
     assert result.status == Status.ERROR
     assert result.message == "Invalid or missing scan_paths configuration"
 
+def test_normal_file_is_not_flagged_as_privileged():
+    assert privileged_binary_issue("/usr/bin/example", 0o755, []) is None
+
+
+def test_unapproved_suid_file_is_flagged():
+    mode = stat.S_ISUID | 0o755
+    assert privileged_binary_issue(
+        "/tmp/example", mode, []
+    ) == "Unapproved SUID binary"
+
+
+def test_unapproved_sgid_file_is_flagged():
+    mode = stat.S_ISGID | 0o755
+    assert privileged_binary_issue(
+        "/tmp/example", mode, []
+    ) == "Unapproved SGID binary"
+
+
+def test_unapproved_suid_sgid_file_is_flagged():
+    mode = stat.S_ISUID | stat.S_ISGID | 0o755
+    assert privileged_binary_issue(
+        "/tmp/example", mode, []
+    ) == "Unapproved SUID/SGID binary"
+
+
+def test_approved_privileged_file_is_not_flagged():
+    mode = stat.S_ISUID | 0o755
+    assert privileged_binary_issue(
+        "/usr/bin/sudo", mode, ["/usr/bin/sudo"]
+    ) is None
+
+
+def test_scanner_finds_unapproved_suid_file(tmp_path):
+    test_file = tmp_path / "test_suid"
+    test_file.write_text("test")
+    test_file.chmod(0o4755)
+
+    findings = scan_privileged_binaries(str(tmp_path), [])
+
+    assert len(findings) == 1
+    assert findings[0]["path"] == str(test_file)
+    assert findings[0]["issue"] == "Unapproved SUID binary"
+
+
+def test_scanner_ignores_approved_suid_file(tmp_path):
+    test_file = tmp_path / "approved_suid"
+    test_file.write_text("test")
+    test_file.chmod(0o4755)
+
+    findings = scan_privileged_binaries(
+        str(tmp_path), [str(test_file)]
+    )
+
+    assert findings == []
+
+
+def test_scanner_finds_unapproved_sgid_file(tmp_path):
+    test_file = tmp_path / "test_sgid"
+    test_file.write_text("test")
+    test_file.chmod(0o2755)
+
+    findings = scan_privileged_binaries(str(tmp_path), [])
+
+    assert len(findings) == 1
+    assert findings[0]["issue"] == "Unapproved SGID binary"
+
+
+def test_scanner_does_not_follow_symlinks(tmp_path):
+    target = tmp_path / "target"
+    target.write_text("test")
+    target.chmod(0o4755)
+
+    link = tmp_path / "link"
+    link.symlink_to(target)
+
+    findings = scan_privileged_binaries(str(tmp_path), [])
+
+    assert len(findings) == 1
+    assert findings[0]["path"] == str(target)
+
+
+def test_privileged_binary_check_passes(tmp_path):
+    test_file = tmp_path / "normal_file"
+    test_file.write_text("safe")
+    test_file.chmod(0o755)
+
+    cfg = {
+        "scan_paths": [str(tmp_path)],
+        "allowed": [],
+    }
+
+    result = check_privileged_binaries(cfg)
+
+    assert result.status == Status.PASS
+    assert result.check_id == "FILE-03"
+
+
+def test_privileged_binary_check_fails(tmp_path):
+    test_file = tmp_path / "unapproved_suid"
+    test_file.write_text("test")
+    test_file.chmod(0o4755)
+
+    cfg = {
+        "scan_paths": [str(tmp_path)],
+        "allowed": [],
+    }
+
+    result = check_privileged_binaries(cfg)
+
+    assert result.status == Status.FAIL
+    assert result.check_id == "FILE-03"
+    assert any("unapproved_suid" in item for item in result.evidence)
+
+
+def test_privileged_binary_check_reports_invalid_path(tmp_path):
+    cfg = {
+        "scan_paths": [str(tmp_path / "missing")],
+        "allowed": [],
+    }
+
+    result = check_privileged_binaries(cfg)
+
+    assert result.status == Status.ERROR
+
+
+def test_privileged_binary_check_rejects_missing_config():
+    result = check_privileged_binaries()
+
+    assert result.status == Status.ERROR
+    assert result.message == "Invalid or missing scan_paths configuration"
+
+
+def test_privileged_binary_check_rejects_invalid_allowlist(tmp_path):
+    cfg = {
+        "scan_paths": [str(tmp_path)],
+        "allowed": "not-a-list",
+    }
+
+    result = check_privileged_binaries(cfg)
+
+    assert result.status == Status.ERROR
+    assert result.message == "Invalid or missing allowed configuration"

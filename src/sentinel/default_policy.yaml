@@ -20,3 +20,16 @@ checks:
       - /usr/bin
       - /usr/sbin
       - /usr/local/bin
+
+
+  FILE-03:
+    scan_paths:
+      - /usr/bin
+      - /usr/sbin
+      - /usr/lib
+      - /usr/local/bin
+    allowed:
+      - /usr/bin/sudo
+      - /usr/bin/passwd
+      - /usr/bin/su
+      - /usr/bin/mount
