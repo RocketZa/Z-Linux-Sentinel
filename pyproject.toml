@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-linux"
+version = "0.1.0"
+description = "Lightweight CLI to audit and harden Ubuntu systems against a YAML security policy"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Zawiya Anant" }]
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff"]
+
+[project.scripts]
+sentinel = "sentinel.cli:main"
+
+[tool.setuptools.package-data]
+sentinel = ["default_policy.yaml"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

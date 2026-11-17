@@ -1,0 +1,13 @@
+version: 1
+
+checks:
+  USR-01: true
+
+  USR-02:
+    admin_groups:
+      - sudo
+      - admin
+    allowed_members:
+      - deeznutz
+
+  USR-03: true
