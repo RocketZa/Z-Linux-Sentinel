@@ -2,6 +2,7 @@ import argparse
 import sys
 
 import sentinel.checks.users  # Registers USR-01
+import sentinel.checks.files
 from sentinel.runner import run_checks
 from sentinel.report import print_terminal, write_json
 

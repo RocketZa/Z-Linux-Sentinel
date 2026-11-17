@@ -11,3 +11,5 @@ checks:
       - deeznutz
 
   USR-03: true
+
+  FILE-01: true
