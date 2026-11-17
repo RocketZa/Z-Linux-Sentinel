@@ -42,20 +42,9 @@ def run_checks(cfg=None, policy_path=None) -> list[CheckResult]:
 
         try:
             check_cfg = check_config if isinstance(check_config, dict) else cfg
-            status, message, evidence = check.func(check_cfg)
+            result = check.func(check_cfg)
 
-            results.append(
-                CheckResult(
-                    check_id=check.id,
-                    title=check.title,
-                    module=check.module,
-                    severity=check.severity,
-                    status=status,
-                    message=message,
-                    evidence=evidence,
-                    remediation=check.remediation,
-                )
-            )
+            results.append(result)
 
         except PermissionError as exc:
             results.append(

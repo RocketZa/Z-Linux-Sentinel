@@ -183,3 +183,154 @@ def check_critical_file_permissions(cfg=None) -> CheckResult:
         ),
         evidence=evidence,
     )
+
+
+def world_writable_issue(mode: int) -> str | None:
+    """Identify unsafe world-writable files and directories."""
+
+    if not mode & stat.S_IWOTH:
+        return None
+
+    if stat.S_ISDIR(mode):
+        if mode & stat.S_ISVTX:
+            return None
+
+        return "World-writable directory without sticky bit"
+
+    return "World-writable file"
+
+
+
+def scan_directory(path: str) -> list[dict]:
+    """Scan a directory and identify unsafe world-writable entries."""
+
+    findings = []
+
+    def handle_walk_error(error):
+        findings.append({
+            "path": error.filename or path,
+            "error": str(error),
+        })
+
+    for root, dirs, files in os.walk(
+        path,
+        topdown=True,
+        followlinks=False,
+        onerror=handle_walk_error,
+    ):
+        for name in dirs + files:
+            entry_path = os.path.join(root, name)
+
+            try:
+                entry_stat = os.lstat(entry_path)
+            except OSError as exc:
+                findings.append({
+                    "path": entry_path,
+                    "error": str(exc),
+                })
+                continue
+
+            if stat.S_ISLNK(entry_stat.st_mode):
+                continue
+
+            issue = world_writable_issue(entry_stat.st_mode)
+
+            if issue:
+                findings.append({
+                    "path": entry_path,
+                    "issue": issue,
+                    "mode": stat.S_IMODE(entry_stat.st_mode),
+                })
+
+    return findings
+
+
+@check(
+    check_id="FILE-02",
+    title="World-writable files and directories",
+    module="File Security",
+    severity=Severity.HIGH,
+    requires_root=True,
+    remediation=(
+        "Review world-writable files and directories. "
+        "Remove unnecessary world-write permissions and ensure "
+        "shared directories have the sticky bit set."
+    ),
+)
+def check_world_writable(cfg=None) -> CheckResult:
+    """Audit configured paths for unsafe world-writable entries."""
+
+    scan_paths = cfg.get("scan_paths") if isinstance(cfg, dict) else None
+
+    if not isinstance(scan_paths, list) or not scan_paths:
+        return CheckResult(
+            check_id="FILE-02",
+            title="World-writable files and directories",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.ERROR,
+            message="Invalid or missing scan_paths configuration",
+            evidence=["Expected a non-empty list of directory paths"],
+        )
+
+    findings = []
+    errors = []
+
+    for path in scan_paths:
+        if not os.path.isdir(path):
+            errors.append(f"{path}: Not a valid directory")
+            continue
+
+        results = scan_directory(path)
+
+        for result in results:
+            if "error" in result:
+                errors.append(
+                    f"{result['path']}: {result['error']}"
+                )
+            else:
+                findings.append(result)
+
+    evidence = []
+
+    for finding in findings:
+        evidence.append(
+            f"{finding['path']}: {finding['issue']} "
+            f"(mode={oct(finding['mode'])})"
+        )
+
+    for error in errors:
+        evidence.append(f"Scan error: {error}")
+
+    if findings:
+        return CheckResult(
+            check_id="FILE-02",
+            title="World-writable files and directories",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.FAIL,
+            message=f"Found {len(findings)} unsafe world-writable entries",
+            evidence=evidence,
+        )
+
+    if errors:
+        return CheckResult(
+            check_id="FILE-02",
+            title="World-writable files and directories",
+            module="File Security",
+            severity=Severity.HIGH,
+            status=Status.ERROR,
+            message=f"Scan incomplete: encountered {len(errors)} error(s)",
+            evidence=evidence,
+        )
+
+    return CheckResult(
+        check_id="FILE-02",
+        title="World-writable files and directories",
+        module="File Security",
+        severity=Severity.HIGH,
+        status=Status.PASS,
+        message="No unsafe world-writable entries found",
+        evidence=evidence,
+    )
+

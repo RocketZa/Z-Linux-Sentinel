@@ -13,3 +13,10 @@ checks:
   USR-03: true
 
   FILE-01: true
+
+  FILE-02:
+    scan_paths:
+      - /etc
+      - /usr/bin
+      - /usr/sbin
+      - /usr/local/bin
