@@ -1,6 +1,6 @@
 import argparse
 import sys
-
+import sentinel.checks.ssh
 import sentinel.checks.users  # Registers USR-01
 import sentinel.checks.files
 from sentinel.runner import run_checks

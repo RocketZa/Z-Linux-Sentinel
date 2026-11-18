@@ -33,3 +33,5 @@ checks:
       - /usr/bin/passwd
       - /usr/bin/su
       - /usr/bin/mount
+
+  SSH-01: true

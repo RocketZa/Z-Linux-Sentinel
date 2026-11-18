@@ -1,6 +1,6 @@
 import sentinel.checks.files
 import sentinel.runner as runner_module
-
+import sentinel.checks.ssh
 from sentinel.runner import run_checks
 from sentinel.models import Status
 
@@ -69,3 +69,37 @@ checks:
 
     assert file_03.status == Status.PASS
     assert file_03.check_id == "FILE-03"
+
+
+def test_runner_executes_ssh_01(monkeypatch, tmp_path):
+    import sentinel.runner as runner_module
+    import sentinel.checks.ssh as ssh_module
+
+    # Simulate root privileges.
+    monkeypatch.setattr(runner_module.os, "geteuid", lambda: 0)
+
+    # Mock effective SSH configuration.
+    monkeypatch.setattr(
+        ssh_module,
+        "get_sshd_config",
+        lambda: {"permitrootlogin": "no"},
+    )
+
+    policy_file = tmp_path / "test_policy.yaml"
+    policy_file.write_text(
+        """
+version: 1
+checks:
+  SSH-01: true
+"""
+    )
+
+    results = run_checks(policy_path=policy_file)
+
+    ssh_01 = next(
+        result for result in results
+        if result.check_id == "SSH-01"
+    )
+
+    assert ssh_01.status == Status.PASS
+    assert ssh_01.check_id == "SSH-01"
