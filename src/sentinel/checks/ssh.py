@@ -56,6 +56,35 @@ def evaluate_root_login(config: dict) -> tuple[Status, str, list[str]]:
         [f"permitrootlogin={permit_root_login}"],
     )
 
+
+def evaluate_password_authentication(
+    config: dict,
+) -> tuple[Status, str, list[str]]:
+    """Evaluate the effective SSH password authentication setting."""
+
+    password_authentication = config.get("passwordauthentication")
+
+    if password_authentication == "no":
+        return (
+            Status.PASS,
+            "SSH password authentication is disabled",
+            ["passwordauthentication=no"],
+        )
+
+    if password_authentication == "yes":
+        return (
+            Status.FAIL,
+            "SSH password authentication is enabled",
+            ["passwordauthentication=yes"],
+        )
+
+    return (
+        Status.ERROR,
+        "passwordauthentication setting not found or invalid",
+        [f"passwordauthentication={password_authentication}"],
+    )
+
+
 @check(
     check_id="SSH-01",
     title="SSH root login configuration",
@@ -82,3 +111,28 @@ def check_ssh_root_login(cfg=None) -> CheckResult:
         message=message,
         evidence=evidence,
     )
+
+@check(
+    check_id="SSH-02",
+    title="SSH password authentication",
+    module="SSH Security",
+    severity=Severity.HIGH,
+    requires_root=True,
+    remediation=(
+        "Set PasswordAuthentication no in the SSH daemon configuration "
+        "and reload the SSH service."
+    ),
+)
+def check_ssh_password_authentication(cfg=None):
+    config = get_sshd_config()
+    status, message, evidence = evaluate_password_authentication(config)
+
+    return CheckResult(
+    check_id="SSH-02",
+    title="SSH password authentication",
+    module="SSH Security",
+    severity=Severity.HIGH,
+    status=status,
+    message=message,
+    evidence=evidence,
+)

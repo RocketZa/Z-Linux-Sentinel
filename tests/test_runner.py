@@ -103,3 +103,29 @@ checks:
 
     assert ssh_01.status == Status.PASS
     assert ssh_01.check_id == "SSH-01"
+
+
+def test_runner_executes_ssh_02(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module.os, "geteuid", lambda: 0)
+
+    monkeypatch.setattr(
+        "sentinel.checks.ssh.get_sshd_config",
+        lambda: {"passwordauthentication": "no"},
+    )
+
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text(
+        """
+version: 1
+checks:
+  SSH-02: true
+"""
+    )
+
+    results = run_checks(policy_path=policy_file)
+
+    ssh_result = next(
+        result for result in results if result.check_id == "SSH-02"
+    )
+
+    assert ssh_result.status == Status.PASS

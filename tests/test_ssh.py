@@ -1,7 +1,14 @@
-from sentinel.checks.ssh import evaluate_root_login, get_sshd_config
-from sentinel.models import Status
+
 import subprocess
 import pytest
+
+import sentinel.checks.ssh as ssh_module
+from sentinel.checks.ssh import (
+    evaluate_root_login,
+    evaluate_password_authentication,
+    get_sshd_config,
+)
+from sentinel.models import Status
 
 
 def test_root_login_disabled_passes():
@@ -39,6 +46,7 @@ def test_root_login_missing_setting_returns_error():
     assert status == Status.ERROR
     assert message == "permitrootlogin setting not found"
     assert evidence == []
+
 
 def test_get_sshd_config_parses_output(monkeypatch):
     mock_result = subprocess.CompletedProcess(
@@ -83,8 +91,6 @@ def test_get_sshd_config_handles_command_failure(monkeypatch):
     with pytest.raises(subprocess.CalledProcessError):
         get_sshd_config()
 
-import sentinel.checks.ssh as ssh_module
-
 
 def test_ssh_root_login_check_passes(monkeypatch):
     monkeypatch.setattr(
@@ -121,3 +127,56 @@ def test_ssh_root_login_check_fails(monkeypatch):
     result = ssh_module.check_ssh_root_login()
 
     assert result.status == Status.FAIL
+
+
+def test_password_authentication_disabled():
+    status, message, evidence = evaluate_password_authentication(
+        {"passwordauthentication": "no"}
+    )
+
+    assert status == Status.PASS
+    assert message == "SSH password authentication is disabled"
+    assert evidence == ["passwordauthentication=no"]
+
+
+def test_password_authentication_enabled():
+    status, message, evidence = evaluate_password_authentication(
+        {"passwordauthentication": "yes"}
+    )
+
+    assert status == Status.FAIL
+    assert message == "SSH password authentication is enabled"
+    assert evidence == ["passwordauthentication=yes"]
+
+
+def test_password_authentication_missing():
+    status, message, evidence = evaluate_password_authentication({})
+
+    assert status == Status.ERROR
+    assert "not found or invalid" in message
+
+
+def test_ssh_password_authentication_check_passes(monkeypatch):
+    monkeypatch.setattr(
+        ssh_module,
+        "get_sshd_config",
+        lambda: {"passwordauthentication": "no"},
+    )
+
+    result = ssh_module.check_ssh_password_authentication()
+
+    assert result.status == Status.PASS
+    assert result.check_id == "SSH-02"
+
+
+def test_ssh_password_authentication_check_fails(monkeypatch):
+    monkeypatch.setattr(
+        ssh_module,
+        "get_sshd_config",
+        lambda: {"passwordauthentication": "yes"},
+    )
+
+    result = ssh_module.check_ssh_password_authentication()
+
+    assert result.status == Status.FAIL
+    assert result.check_id == "SSH-02"
