@@ -73,3 +73,34 @@ def run_checks(cfg=None, policy_path=None) -> list[CheckResult]:
             )
 
     return results
+
+
+def test_runner_executes_ssh_03(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module.os, "geteuid", lambda: 0)
+
+    monkeypatch.setattr(
+        "sentinel.checks.ssh.validate_sshd_config",
+        lambda: (True, "SSH configuration syntax is valid"),
+    )
+
+    monkeypatch.setattr(
+        "sentinel.checks.ssh.get_sshd_config",
+        lambda: {"permitemptypasswords": "no"},
+    )
+
+    policy_file = tmp_path / "policy.yaml"
+    policy_file.write_text(
+        """
+version: 1
+checks:
+  SSH-03: true
+"""
+    )
+
+    results = run_checks(policy_path=policy_file)
+
+    ssh_result = next(
+        result for result in results if result.check_id == "SSH-03"
+    )
+
+    assert ssh_result.status == Status.PASS

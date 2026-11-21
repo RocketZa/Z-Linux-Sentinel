@@ -37,3 +37,5 @@ checks:
   SSH-01: true
 
   SSH-02: true
+
+  SSH-03: true

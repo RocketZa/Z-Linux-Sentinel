@@ -24,6 +24,28 @@ def get_sshd_config() -> dict:
 
     return config
 
+
+def validate_sshd_config() -> tuple[bool, str]:
+    """Validate SSH daemon configuration syntax."""
+
+    try:
+        result = subprocess.run(
+            ["sshd", "-t"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        return True, "SSH configuration syntax is valid"
+
+    except subprocess.CalledProcessError as exc:
+        error = exc.stderr.strip() or "Unknown SSH configuration error"
+        return False, error
+
+    except FileNotFoundError:
+        return False, "sshd command not found"
+
+
 def evaluate_root_login(config: dict) -> tuple[Status, str, list[str]]:
     """Evaluate the effective SSH root-login setting."""
 
@@ -85,6 +107,34 @@ def evaluate_password_authentication(
     )
 
 
+def evaluate_empty_passwords(
+    config: dict,
+) -> tuple[Status, str, list[str]]:
+    """Evaluate whether SSH permits empty passwords."""
+
+    permit_empty_passwords = config.get("permitemptypasswords")
+
+    if permit_empty_passwords == "no":
+        return (
+            Status.PASS,
+            "SSH empty-password authentication is disabled",
+            ["permitemptypasswords=no"],
+        )
+
+    if permit_empty_passwords == "yes":
+        return (
+            Status.FAIL,
+            "SSH empty-password authentication is enabled",
+            ["permitemptypasswords=yes"],
+        )
+
+    return (
+        Status.ERROR,
+        "permitemptypasswords setting not found or invalid",
+        [f"permitemptypasswords={permit_empty_passwords}"],
+    )
+
+
 @check(
     check_id="SSH-01",
     title="SSH root login configuration",
@@ -136,3 +186,42 @@ def check_ssh_password_authentication(cfg=None):
     message=message,
     evidence=evidence,
 )
+
+
+@check(
+    check_id="SSH-03",
+    title="SSH configuration validation",
+    module="SSH Security",
+    severity=Severity.HIGH,
+    requires_root=True,
+    remediation=(
+        "Correct SSH configuration errors and set "
+        "PermitEmptyPasswords no in the SSH daemon configuration."
+    ),
+)
+def check_ssh_config_validation(cfg=None):
+    valid, validation_message = validate_sshd_config()
+
+    if not valid:
+        return CheckResult(
+            check_id="SSH-03",
+            title="SSH configuration validation",
+            module="SSH Security",
+            severity=Severity.HIGH,
+            status=Status.FAIL,
+            message="SSH configuration validation failed",
+            evidence=[validation_message],
+        )
+
+    config = get_sshd_config()
+    status, message, evidence = evaluate_empty_passwords(config)
+
+    return CheckResult(
+        check_id="SSH-03",
+        title="SSH configuration validation",
+        module="SSH Security",
+        severity=Severity.HIGH,
+        status=status,
+        message=message,
+        evidence=evidence,
+    )

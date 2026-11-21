@@ -7,6 +7,8 @@ from sentinel.checks.ssh import (
     evaluate_root_login,
     evaluate_password_authentication,
     get_sshd_config,
+    validate_sshd_config,
+    evaluate_empty_passwords
 )
 from sentinel.models import Status
 
@@ -128,6 +130,59 @@ def test_ssh_root_login_check_fails(monkeypatch):
 
     assert result.status == Status.FAIL
 
+def test_validate_sshd_config_success(monkeypatch):
+    def mock_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=["sshd", "-t"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "sentinel.checks.ssh.subprocess.run",
+        mock_run,
+    )
+
+    valid, message = validate_sshd_config()
+
+    assert valid is True
+    assert message == "SSH configuration syntax is valid"
+
+
+def test_validate_sshd_config_failure(monkeypatch):
+    def mock_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["sshd", "-t"],
+            stderr="Bad configuration option",
+        )
+
+    monkeypatch.setattr(
+        "sentinel.checks.ssh.subprocess.run",
+        mock_run,
+    )
+
+    valid, message = validate_sshd_config()
+
+    assert valid is False
+    assert message == "Bad configuration option"
+
+
+def test_validate_sshd_config_command_missing(monkeypatch):
+    def mock_run(*args, **kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(
+        "sentinel.checks.ssh.subprocess.run",
+        mock_run,
+    )
+
+    valid, message = validate_sshd_config()
+
+    assert valid is False
+    assert message == "sshd command not found"
+
 
 def test_password_authentication_disabled():
     status, message, evidence = evaluate_password_authentication(
@@ -180,3 +235,80 @@ def test_ssh_password_authentication_check_fails(monkeypatch):
 
     assert result.status == Status.FAIL
     assert result.check_id == "SSH-02"
+
+def test_empty_passwords_disabled():
+    status, message, evidence = evaluate_empty_passwords(
+        {"permitemptypasswords": "no"}
+    )
+
+    assert status == Status.PASS
+    assert message == "SSH empty-password authentication is disabled"
+    assert evidence == ["permitemptypasswords=no"]
+
+
+def test_empty_passwords_enabled():
+    status, message, evidence = evaluate_empty_passwords(
+        {"permitemptypasswords": "yes"}
+    )
+
+    assert status == Status.FAIL
+    assert message == "SSH empty-password authentication is enabled"
+    assert evidence == ["permitemptypasswords=yes"]
+
+
+def test_empty_passwords_missing():
+    status, message, evidence = evaluate_empty_passwords({})
+
+    assert status == Status.ERROR
+    assert "not found or invalid" in message
+
+
+def test_ssh_config_validation_passes(monkeypatch):
+    monkeypatch.setattr(
+        ssh_module,
+        "validate_sshd_config",
+        lambda: (True, "SSH configuration syntax is valid"),
+    )
+
+    monkeypatch.setattr(
+        ssh_module,
+        "get_sshd_config",
+        lambda: {"permitemptypasswords": "no"},
+    )
+
+    result = ssh_module.check_ssh_config_validation()
+
+    assert result.status == Status.PASS
+    assert result.check_id == "SSH-03"
+
+
+def test_ssh_config_validation_fails_on_invalid_config(monkeypatch):
+    monkeypatch.setattr(
+        ssh_module,
+        "validate_sshd_config",
+        lambda: (False, "Bad configuration option"),
+    )
+
+    result = ssh_module.check_ssh_config_validation()
+
+    assert result.status == Status.FAIL
+    assert result.evidence == ["Bad configuration option"]
+
+
+def test_ssh_config_validation_fails_on_empty_passwords(monkeypatch):
+    monkeypatch.setattr(
+        ssh_module,
+        "validate_sshd_config",
+        lambda: (True, "SSH configuration syntax is valid"),
+    )
+
+    monkeypatch.setattr(
+        ssh_module,
+        "get_sshd_config",
+        lambda: {"permitemptypasswords": "yes"},
+    )
+
+    result = ssh_module.check_ssh_config_validation()
+
+    assert result.status == Status.FAIL
+    assert result.check_id == "SSH-03"
