@@ -39,3 +39,7 @@ checks:
   SSH-02: true
 
   SSH-03: true
+
+  NET-01:
+    allowed_listeners: []
+    

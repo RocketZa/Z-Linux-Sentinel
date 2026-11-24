@@ -3,6 +3,7 @@ import sentinel.runner as runner_module
 import sentinel.checks.ssh
 from sentinel.runner import run_checks
 from sentinel.models import Status
+import sentinel.checks.network as network_module
 
 
 def test_runner_executes_file_02(tmp_path, monkeypatch):
@@ -129,3 +130,87 @@ checks:
     )
 
     assert ssh_result.status == Status.PASS
+
+
+
+def test_runner_executes_net_01_pass(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module.os, "geteuid", lambda: 0)
+
+    listeners = [
+        {
+            "protocol": "udp",
+            "state": "UNCONN",
+            "address": "0.0.0.0",
+            "port": 5353,
+            "process": "avahi-daemon",
+        }
+    ]
+
+    monkeypatch.setattr(
+        network_module,
+        "get_listening_sockets",
+        lambda: listeners,
+    )
+
+    policy_file = tmp_path / "test_policy.yaml"
+    policy_file.write_text(
+        """
+version: 1
+checks:
+  NET-01:
+    allowed_listeners:
+      - protocol: udp
+        address: 0.0.0.0
+        port: 5353
+"""
+    )
+
+    results = run_checks(policy_path=policy_file)
+
+    net_01 = next(
+        result for result in results
+        if result.check_id == "NET-01"
+    )
+
+    assert net_01.status == Status.PASS
+    assert net_01.check_id == "NET-01"
+
+
+def test_runner_executes_net_01_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner_module.os, "geteuid", lambda: 0)
+
+    listeners = [
+        {
+            "protocol": "tcp",
+            "state": "LISTEN",
+            "address": "192.168.1.10",
+            "port": 8080,
+            "process": "unknown",
+        }
+    ]
+
+    monkeypatch.setattr(
+        network_module,
+        "get_listening_sockets",
+        lambda: listeners,
+    )
+
+    policy_file = tmp_path / "test_policy.yaml"
+    policy_file.write_text(
+        """
+version: 1
+checks:
+  NET-01:
+    allowed_listeners: []
+"""
+    )
+
+    results = run_checks(policy_path=policy_file)
+
+    net_01 = next(
+        result for result in results
+        if result.check_id == "NET-01"
+    )
+
+    assert net_01.status == Status.FAIL
+    assert net_01.check_id == "NET-01"

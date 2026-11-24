@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sentinel.models import Severity, Status
+from sentinel.models import CheckResult, Severity, Status
 from sentinel.registry import check
 import re
 def uid0_accounts(passwd_text: str) -> list[str]:
@@ -57,6 +57,8 @@ def admin_group_members(
     Severity.HIGH,
     remediation="Delete the extra account or give it a normal UID.",
 )
+
+
 def usr_01(cfg):
     extras = [
         user
@@ -65,9 +67,25 @@ def usr_01(cfg):
     ]
 
     if extras:
-        return Status.FAIL, f"{len(extras)} non-root UID-0 account(s)", extras
+        return CheckResult(
+            check_id="USR-01",
+            title="Only root has UID 0",
+            module="users",
+            severity=Severity.HIGH,
+            status=Status.FAIL,
+            message=f"{len(extras)} non-root UID-0 account(s)",
+            evidence=extras,
+        )
 
-    return Status.PASS, "Only root has UID 0", []
+    return CheckResult(
+        check_id="USR-01",
+        title="Only root has UID 0",
+        module="users",
+        severity=Severity.HIGH,
+        status=Status.PASS,
+        message="Only root has UID 0",
+        evidence=[],
+    )
 
 
 @check(
@@ -77,18 +95,23 @@ def usr_01(cfg):
     Severity.HIGH,
     remediation="Remove unapproved users from administrative groups or update the approved-user policy.",
 )
+
+
 def usr_02(cfg):
     if not isinstance(cfg, dict):
-        return Status.ERROR, "Missing USR-02 policy configuration", []
+        return CheckResult(
+            check_id="USR-02",
+            title="Review administrative group membership",
+            module="users",
+            severity=Severity.HIGH,
+            status=Status.ERROR,
+            message="Missing USR-02 policy configuration",
+        )
 
     admin_groups = cfg["admin_groups"]
     allowed_members = cfg["allowed_members"]
 
-    try:
-        group_text = Path("/etc/group").read_text(encoding="utf-8")
-    except PermissionError:
-        raise
-
+    group_text = Path("/etc/group").read_text(encoding="utf-8")
     memberships = admin_group_members(group_text, admin_groups)
 
     actual_members = sorted({
@@ -98,25 +121,37 @@ def usr_02(cfg):
     })
 
     if not allowed_members:
-        return (
-            Status.WARN,
-            "No approved administrative users configured; review membership",
-            actual_members,
+        return CheckResult(
+            check_id="USR-02",
+            title="Review administrative group membership",
+            module="users",
+            severity=Severity.HIGH,
+            status=Status.WARN,
+            message="No approved administrative users configured; review membership",
+            evidence=actual_members,
         )
 
     unapproved = sorted(set(actual_members) - set(allowed_members))
 
     if unapproved:
-        return (
-            Status.FAIL,
-            f"{len(unapproved)} unapproved administrative group member(s)",
-            unapproved,
+        return CheckResult(
+            check_id="USR-02",
+            title="Review administrative group membership",
+            module="users",
+            severity=Severity.HIGH,
+            status=Status.FAIL,
+            message=f"{len(unapproved)} unapproved administrative group member(s)",
+            evidence=unapproved,
         )
 
-    return (
-        Status.PASS,
-        "All administrative group members are approved",
-        actual_members,
+    return CheckResult(
+        check_id="USR-02",
+        title="Review administrative group membership",
+        module="users",
+        severity=Severity.HIGH,
+        status=Status.PASS,
+        message="All administrative group members are approved",
+        evidence=actual_members,
     )
 
 
@@ -175,6 +210,7 @@ def nopasswd_all_rules(sudoers_text: str) -> list[str]:
     requires_root=True,
     remediation="Remove or restrict NOPASSWD: ALL rules in sudoers configuration.",
 )
+
 def usr_03(cfg):
     sudoers_path = Path("/etc/sudoers")
     sudoers_dir = Path("/etc/sudoers.d")
@@ -192,19 +228,26 @@ def usr_03(cfg):
             if file_path.name.startswith("."):
                 continue
 
-            try:
-                file_text = file_path.read_text(encoding="utf-8")
-            except PermissionError:
-                raise
-
+            file_text = file_path.read_text(encoding="utf-8")
             findings.extend(nopasswd_all_rules(file_text))
 
     if findings:
-        return (
-            Status.FAIL,
-            f"{len(findings)} unrestricted NOPASSWD rule(s) detected",
-            findings,
+        return CheckResult(
+            check_id="USR-03",
+            title="No unrestricted passwordless sudo rules",
+            module="users",
+            severity=Severity.HIGH,
+            status=Status.FAIL,
+            message=f"{len(findings)} unrestricted NOPASSWD rule(s) detected",
+            evidence=findings,
         )
 
-    return Status.PASS, "No unrestricted NOPASSWD: ALL rules detected", []
-
+    return CheckResult(
+        check_id="USR-03",
+        title="No unrestricted passwordless sudo rules",
+        module="users",
+        severity=Severity.HIGH,
+        status=Status.PASS,
+        message="No unrestricted NOPASSWD: ALL rules detected",
+        evidence=[],
+    )

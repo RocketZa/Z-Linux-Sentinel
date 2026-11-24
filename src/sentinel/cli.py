@@ -3,6 +3,7 @@ import sys
 import sentinel.checks.ssh
 import sentinel.checks.users  # Registers USR-01
 import sentinel.checks.files
+import sentinel.checks.network
 from sentinel.runner import run_checks
 from sentinel.report import print_terminal, write_json
 
